@@ -436,7 +436,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif cb == "admin_groups":
         await show_groups_list(update, context, data)
 
-    elif cb.startswith("group_") and not any(cb.startswith(x) for x in ["gs_", "gtoggle_", "gaction_", "gthreshold_", "gmute_dur_", "gedit_", "gpreview_", "gexc_"]):
+    elif cb.startswith("group_") and not any(cb.startswith(x) for x in ["gs_", "gtoggle_", "gaction_", "gthreshold_", "gmute_dur_", "gedit_", "gpreview_", "gexc_", "gwords_"]):
         gid = cb[6:]
         await show_group_settings(update, context, gid, data)
 
