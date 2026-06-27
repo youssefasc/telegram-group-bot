@@ -256,6 +256,7 @@ async def show_channel_settings(update, context, cid, data):
         [InlineKeyboardButton("➕ إضافة زر إضافي", callback_data=f"cedit_add_btn_{cid}")],
         [InlineKeyboardButton("🗑️ حذف زر إضافي", callback_data=f"cedit_del_btn_{cid}")],
         [InlineKeyboardButton("👁️ معاينة الأزرار", callback_data=f"cpreview_{cid}")],
+        [InlineKeyboardButton("📋 نسخ الإعدادات من قناة", callback_data=f"ccopy_settings_{cid}")],
         [InlineKeyboardButton("🚪 إخراج البوت من القناة", callback_data=f"cleave_{cid}")],
         [InlineKeyboardButton("🔙 رجوع للقنوات", callback_data="admin_channels")],
     ])
@@ -317,6 +318,7 @@ async def show_group_settings(update, context, gid, data):
         [InlineKeyboardButton("↩️ حظر الفورورد", callback_data=f"gs_forward_{gid}")],
         [InlineKeyboardButton("🤬 حظر الكلمات", callback_data=f"gs_words_{gid}")],
         [InlineKeyboardButton("👥 الاستثناءات", callback_data=f"gs_exceptions_{gid}")],
+        [InlineKeyboardButton("📋 نسخ الإعدادات من مجموعة", callback_data=f"gcopy_settings_{gid}")],
         [InlineKeyboardButton("🚪 إخراج البوت من المجموعة", callback_data=f"gleave_group_{gid}")],
         [InlineKeyboardButton("🔙 رجوع للمجموعات", callback_data="admin_groups")],
     ])
@@ -629,6 +631,51 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"channel_{cid}")]]),
             parse_mode="Markdown")
 
+    elif cb.startswith("ccopy_settings_"):
+        # نسخ الإعدادات لقناة من قناة أخرى
+        target_cid = cb[15:]
+        channels = data.get("channels", {})
+        other_channels = {cid: c for cid, c in channels.items() if cid != target_cid}
+        if not other_channels:
+            await query.answer("مفيش قنوات تانية عشان تنسخ منها!", show_alert=True)
+            return
+        rows = []
+        for cid, c in other_channels.items():
+            title = c.get("title", cid)
+            rows.append([InlineKeyboardButton(
+                f"📋 {title}",
+                callback_data=f"ccopy_from_{cid}_to_{target_cid}"
+            )])
+        rows.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"channel_{target_cid}")])
+        await safe_edit(update.callback_query,
+            "📋 *نسخ الإعدادات*\n\nاختار القناة اللي عايز تنسخ منها:",
+            reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+
+    elif cb.startswith("ccopy_from_"):
+        # تنفيذ النسخ للقنوات
+        rest = cb[11:]
+        parts = rest.split("_to_")
+        if len(parts) != 2:
+            await query.answer("خطأ!", show_alert=True)
+            return
+        from_cid, to_cid = parts[0], parts[1]
+        src = data.get("channels", {}).get(from_cid)
+        dst = data.get("channels", {}).get(to_cid)
+        if not src or not dst:
+            await query.answer("قناة مش موجودة!", show_alert=True)
+            return
+        keys_to_copy = [
+            "auto_button", "extra_buttons", "repost_forwards"
+        ]
+        # channel_link مش بنسخها عشان كل قناة ليها رابطها الخاص
+        for key in keys_to_copy:
+            if key in src:
+                dst[key] = src[key]
+        save(data)
+        src_title = src.get("title", from_cid)
+        await query.answer(f"✅ تم نسخ الإعدادات من {src_title}", show_alert=True)
+        await show_channel_settings(update, context, to_cid, data)
+
     elif cb.startswith("cleave_"):
         cid = cb[7:]
         c = get_channel(data, cid)
@@ -689,6 +736,58 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif cb.startswith("gs_words_"):
         gid = cb[9:]
         await show_words_settings(update, context, gid, data)
+
+    elif cb.startswith("gcopy_settings_"):
+        # نسخ الإعدادات لمجموعة من مجموعة أخرى
+        target_gid = cb[15:]
+        groups = data.get("groups", {})
+        other_groups = {gid: g for gid, g in groups.items() if gid != target_gid}
+        if not other_groups:
+            await query.answer("مفيش مجموعات تانية عشان تنسخ منها!", show_alert=True)
+            return
+        rows = []
+        for gid, g in other_groups.items():
+            title = g.get("title", gid)
+            rows.append([InlineKeyboardButton(
+                f"📋 {title}",
+                callback_data=f"gcopy_from_{gid}_to_{target_gid}"
+            )])
+        rows.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"group_{target_gid}")])
+        await safe_edit(update.callback_query,
+            "📋 *نسخ الإعدادات*\n\nاختار المجموعة اللي عايز تنسخ منها:",
+            reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+
+    elif cb.startswith("gcopy_from_"):
+        # تنفيذ النسخ للمجموعات
+        rest = cb[11:]  # gid_to_target_gid
+        parts = rest.split("_to_")
+        if len(parts) != 2:
+            await query.answer("خطأ!", show_alert=True)
+            return
+        from_gid, to_gid = parts[0], parts[1]
+        src = data.get("groups", {}).get(from_gid)
+        dst = data.get("groups", {}).get(to_gid)
+        if not src or not dst:
+            await query.answer("مجموعة مش موجودة!", show_alert=True)
+            return
+        # الإعدادات اللي هتتنسخ (بدون violations وseen_members وleft_members)
+        keys_to_copy = [
+            "welcome_enabled", "welcome_text", "welcome_once", "welcome_buttons",
+            "leave_enabled", "leave_text", "leave_once",
+            "anti_links", "anti_links_action", "anti_links_threshold", "anti_links_mute_duration",
+            "anti_username", "anti_username_action", "anti_username_threshold", "anti_username_mute_duration",
+            "anti_forward", "anti_forward_action", "anti_forward_threshold", "anti_forward_mute_duration",
+            "anti_words", "anti_words_list", "anti_words_action", "anti_words_threshold", "anti_words_mute_duration",
+            "exceptions_users", "exceptions_links",
+        ]
+        for key in keys_to_copy:
+            if key in src:
+                dst[key] = src[key]
+        save(data)
+        src_title = src.get("title", from_gid)
+        dst_title = dst.get("title", to_gid)
+        await query.answer(f"✅ تم نسخ الإعدادات من {src_title}", show_alert=True)
+        await show_group_settings(update, context, to_gid, data)
 
     elif cb.startswith("gleave_group_"):
         gid = cb[13:]
@@ -1604,6 +1703,31 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await context.bot.send_sticker(
                     chat_id=chat.id,
                     sticker=msg.sticker.file_id,
+                    reply_markup=kb
+                )
+            elif msg.animation:
+                await context.bot.send_animation(
+                    chat_id=chat.id,
+                    animation=msg.animation.file_id,
+                    caption=msg.caption,
+                    caption_entities=msg.caption_entities,
+                    reply_markup=kb
+                )
+            elif msg.video_note:
+                await context.bot.send_video_note(
+                    chat_id=chat.id,
+                    video_note=msg.video_note.file_id,
+                    reply_markup=kb
+                )
+            elif msg.poll:
+                # البولز مش ممكن نعمل copy ليها بس نقدر نبعت رسالة نص
+                pass
+            else:
+                # أي نوع تاني - copy_message
+                await context.bot.copy_message(
+                    chat_id=chat.id,
+                    from_chat_id=msg.chat_id,
+                    message_id=msg.message_id,
                     reply_markup=kb
                 )
         except Exception as e:
