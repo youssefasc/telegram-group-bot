@@ -214,7 +214,14 @@ async def show_group_settings(update, context, gid, data):
         [InlineKeyboardButton("👥 الاستثناءات", callback_data=f"gs_exceptions_{gid}")],
         [InlineKeyboardButton("🔙 رجوع للمجموعات", callback_data="admin_groups")],
     ])
-    await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+    try:
+        await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"edit_message_text failed: {e}")
+        try:
+            await update.callback_query.message.reply_text(text, reply_markup=kb, parse_mode="Markdown")
+        except Exception as e2:
+            logger.error(f"reply_text also failed: {e2}")
 
 async def show_welcome_settings(update, context, gid, data):
     g = get_group(data, gid)
@@ -312,6 +319,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cb = query.data
     user_id = query.from_user.id
     data = load()
+
+    logger.info(f"Callback: {cb} from user {user_id}")
 
     # ===== callbacks عامة للمستخدمين =====
     if cb == "send_suggestion":
