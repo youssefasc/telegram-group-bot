@@ -1041,28 +1041,37 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
                 await update.message.reply_text("⚠️ الشكل غلط! `الكلمة | الرد`", parse_mode="Markdown")
 
         elif waiting.startswith("broadcast_fwd_"):
-            # برودكاست موجّه - يحتاج الرسالة تكون forward
-            target = waiting.split("_")[2]
+            # برودكاست موجّه - بيعمل forward للرسالة كما هي
+            parts = waiting.split("_")
+            target = parts[2]  # users / groups / channels / all
             msg = update.message
-            # التحقق إن الرسالة موجهة
-            if not msg.forward_origin and not msg.forward_from and not msg.forward_from_chat:
-                context.user_data["waiting"] = waiting  # ارجع للانتظار
+
+            # التحقق إن الرسالة موجهة (forward_origin موجود في v21)
+            is_forwarded = (
+                getattr(msg, "forward_origin", None) or
+                getattr(msg, "forward_from", None) or
+                getattr(msg, "forward_from_chat", None) or
+                getattr(msg, "forward_sender_name", None)
+            )
+
+            if not is_forwarded:
+                context.user_data["waiting"] = waiting
                 await update.message.reply_text(
-                    "⚠️ الرسالة دي مش موجهة! ابعت رسالة موجّهة (forward) من قناة أو شخص.",
+                    "⚠️ الرسالة دي مش موجهة!\n\nابعتلي رسالة موجّهة (forward) من قناة أو شخص.",
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="admin_broadcast_menu")]])
                 )
                 return
 
             sent = failed = 0
-            targets = []
+            targets_list = []
             if target in ["users", "all"]:
-                targets += list(data.get("users", {}).keys())
+                targets_list += list(data.get("users", {}).keys())
             if target in ["groups", "all"]:
-                targets += list(data.get("groups", {}).keys())
+                targets_list += list(data.get("groups", {}).keys())
             if target in ["channels", "all"]:
-                targets += list(data.get("channels", {}).keys())
+                targets_list += list(data.get("channels", {}).keys())
 
-            for chat_id in targets:
+            for chat_id in targets_list:
                 try:
                     await context.bot.forward_message(
                         chat_id=int(chat_id),
@@ -1070,7 +1079,8 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
                         message_id=msg.message_id
                     )
                     sent += 1
-                except:
+                except Exception as e:
+                    logger.warning(f"Forward failed to {chat_id}: {e}")
                     failed += 1
 
             data["stats"]["broadcasts"] = data["stats"].get("broadcasts", 0) + 1
