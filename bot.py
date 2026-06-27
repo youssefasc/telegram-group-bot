@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
-DATA_FILE = "data.json"
+DATA_FILE = "/app/data/data.json"
+
+# إنشاء المجلد لو مش موجود
+os.makedirs("/app/data", exist_ok=True)
 
 # ==================== DATA ====================
 def load():
