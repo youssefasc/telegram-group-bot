@@ -121,15 +121,28 @@ def build_kb(buttons):
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
 async def safe_edit(query, text, reply_markup=None, parse_mode="Markdown"):
-    """محاولة تعديل الرسالة، ولو فشل يبعت رسالة جديدة"""
+    """تعديل الرسالة مع fallback لرسالة جديدة"""
+    # حاول تعدل الرسالة الأول
     try:
         await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        return
     except Exception as e:
-        logger.warning(f"edit failed: {e}, sending new message")
+        logger.warning(f"edit_message_text failed: {type(e).__name__}: {e}")
+    
+    # لو فشل، ابعت رسالة جديدة وامسح القديمة
+    try:
+        await query.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         try:
-            await query.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-        except Exception as e2:
-            logger.error(f"reply also failed: {e2}")
+            await query.message.delete()
+        except:
+            pass
+    except Exception as e2:
+        logger.error(f"reply_text also failed: {type(e2).__name__}: {e2}")
+        # آخر محاولة: show alert
+        try:
+            await query.answer("حدث خطأ، جرب مرة أخرى", show_alert=True)
+        except:
+            pass
 
 def action_label(action):
     return {"delete": "🗑️ حذف", "mute": "🔇 كتم", "ban": "🚫 حظر"}.get(action, action)
@@ -332,7 +345,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = load()
 
-    logger.info(f"Callback: {cb} from user {user_id}")
+    logger.info(f"=== CALLBACK: '{cb}' from user {user_id} ===")
 
     # ===== callbacks عامة للمستخدمين =====
     if cb == "send_suggestion":
