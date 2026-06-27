@@ -36,7 +36,18 @@ def default_data():
         "users": {},
         "groups": {},
         "allow_groups": True,
-        "stats": {"messages": 0, "broadcasts": 0}
+        "stats": {"messages": 0, "broadcasts": 0},
+        "channels": {}
+    }
+
+def default_channel_settings():
+    return {
+        "title": "",
+        "username": "",
+        "joined": datetime.now().isoformat(),
+        "auto_button": True,          # زرار رابط القناة تلقائي
+        "channel_link": "",           # رابط القناة
+        "extra_buttons": [],          # أزرار إضافية [{text, url}]
     }
 
 def default_group_settings():
@@ -97,6 +108,19 @@ def is_owner(user_id):
 
 def is_banned(user_id, data):
     return str(user_id) in data.get("banned_users", [])
+
+def get_channel(data, chat_id):
+    cid = str(chat_id)
+    if cid not in data.get("channels", {}):
+        if "channels" not in data:
+            data["channels"] = {}
+        data["channels"][cid] = default_channel_settings()
+    else:
+        defaults = default_channel_settings()
+        for key, val in defaults.items():
+            if key not in data["channels"][cid]:
+                data["channels"][cid][key] = val
+    return data["channels"][cid]
 
 def get_group(data, chat_id):
     gid = str(chat_id)
@@ -161,6 +185,7 @@ def admin_home_kb(data):
         [InlineKeyboardButton("💬 رسالة الترحيب في الخاص", callback_data="admin_welcome")],
         [InlineKeyboardButton("🤖 الردود التلقائية", callback_data="admin_replies")],
         [InlineKeyboardButton("👥 إدارة المجموعات", callback_data="admin_groups")],
+        [InlineKeyboardButton("📢 إدارة القنوات", callback_data="admin_channels")],
         [InlineKeyboardButton("📢 برودكاست", callback_data="admin_broadcast_menu")],
         [InlineKeyboardButton("🚫 المحظورون", callback_data="admin_banned")],
         [InlineKeyboardButton("👮 الأدمنز", callback_data="admin_admins")],
@@ -200,6 +225,46 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome["text"], reply_markup=kb, parse_mode="Markdown")
 
 # ==================== GROUPS MANAGEMENT ====================
+async def show_channels_list(update, context, data):
+    channels = data.get("channels", {})
+    if not channels:
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]])
+        await safe_edit(update.callback_query, "📢 *إدارة القنوات*\n\nمفيش قنوات حالياً.\n\nأضف البوت كـ Admin في قناة وهتظهر هنا.", reply_markup=kb, parse_mode="Markdown")
+        return
+    rows = []
+    for cid, c in channels.items():
+        title = c.get("title", cid)
+        rows.append([InlineKeyboardButton(f"📢 {title}", callback_data=f"channel_{cid}")])
+    rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")])
+    await safe_edit(update.callback_query,
+        f"📢 *إدارة القنوات* ({len(channels)})",
+        reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode="Markdown"
+    )
+
+async def show_channel_settings(update, context, cid, data):
+    c = get_channel(data, cid)
+    title = c.get("title", cid)
+    auto = "✅ مفعّل" if c["auto_button"] else "❌ معطّل"
+    link = c.get("channel_link", "") or "غير محدد"
+    btns_text = "\n".join([f"• {b['text']} → {b.get('url','')}" for b in c.get("extra_buttons", [])]) or "لا يوجد"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"🔗 زرار القناة التلقائي: {auto}", callback_data=f"ctoggle_auto_{cid}")],
+        [InlineKeyboardButton("✏️ تعديل رابط القناة", callback_data=f"cedit_link_{cid}")],
+        [InlineKeyboardButton("➕ إضافة زر إضافي", callback_data=f"cedit_add_btn_{cid}")],
+        [InlineKeyboardButton("🗑️ حذف زر إضافي", callback_data=f"cedit_del_btn_{cid}")],
+        [InlineKeyboardButton("👁️ معاينة الأزرار", callback_data=f"cpreview_{cid}")],
+        [InlineKeyboardButton("🚪 إخراج البوت من القناة", callback_data=f"cleave_{cid}")],
+        [InlineKeyboardButton("🔙 رجوع للقنوات", callback_data="admin_channels")],
+    ])
+    await safe_edit(update.callback_query,
+        f"📢 *إعدادات قناة: {title}*\n\n"
+        f"🔗 زرار تلقائي: {auto}\n"
+        f"📎 رابط القناة: `{link}`\n"
+        f"🔘 أزرار إضافية:\n{btns_text}",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+
 async def show_groups_list(update, context, data):
     groups = data.get("groups", {})
     if not groups:
@@ -479,6 +544,107 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save(data)
         await query.answer(f"✅ تم الحذف", show_alert=True)
         await show_admin_home(update, context, data)
+
+    # ===== إدارة القنوات =====
+    elif cb == "admin_channels":
+        await show_channels_list(update, context, data)
+
+    elif cb.startswith("channel_") and not any(cb.startswith(x) for x in ["ctoggle_", "cedit_", "cpreview_", "cleave_", "cconfirm_"]):
+        cid = cb[8:]
+        await show_channel_settings(update, context, cid, data)
+
+    elif cb.startswith("ctoggle_auto_"):
+        cid = cb[13:]
+        c = get_channel(data, cid)
+        c["auto_button"] = not c["auto_button"]
+        save(data)
+        await query.answer(f"✅ الزرار التلقائي: {'مفعّل' if c['auto_button'] else 'معطّل'}", show_alert=True)
+        await show_channel_settings(update, context, cid, data)
+
+    elif cb.startswith("cedit_link_"):
+        cid = cb[11:]
+        context.user_data["waiting"] = f"channel_link_{cid}"
+        await safe_edit(update.callback_query,
+            "✏️ ابعت رابط القناة:\nمثال: `https://t.me/yourchannel`",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data=f"channel_{cid}")]]),
+            parse_mode="Markdown"
+        )
+
+    elif cb.startswith("cedit_add_btn_"):
+        cid = cb[14:]
+        context.user_data["waiting"] = f"channel_add_btn_{cid}"
+        await safe_edit(update.callback_query,
+            "➕ ابعت الزر بالشكل ده:\n`اسم الزر | الرابط`\nمثال: `🌐 موقعنا | https://example.com`",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data=f"channel_{cid}")]]),
+            parse_mode="Markdown"
+        )
+
+    elif cb.startswith("cedit_del_btn_"):
+        cid = cb[14:]
+        c = get_channel(data, cid)
+        btns = c.get("extra_buttons", [])
+        if not btns:
+            await query.answer("مفيش أزرار!", show_alert=True)
+            return
+        rows = [[InlineKeyboardButton(f"🗑️ {b['text']}", callback_data=f"cdelbtn_{i}_{cid}")] for i, b in enumerate(btns)]
+        rows.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"channel_{cid}")])
+        await safe_edit(update.callback_query, "🗑️ اختار الزر:", reply_markup=InlineKeyboardMarkup(rows))
+
+    elif cb.startswith("cdelbtn_"):
+        rest = cb[8:]
+        idx_str, cid = rest.rsplit("_", 1)
+        idx = int(idx_str)
+        c = get_channel(data, cid)
+        if idx < len(c.get("extra_buttons", [])):
+            c["extra_buttons"].pop(idx)
+            save(data)
+        await query.answer("✅ تم الحذف", show_alert=True)
+        await show_channel_settings(update, context, cid, data)
+
+    elif cb.startswith("cpreview_"):
+        cid = cb[9:]
+        c = get_channel(data, cid)
+        kb_btns = []
+        if c.get("auto_button") and c.get("channel_link"):
+            kb_btns.append([InlineKeyboardButton(f"📢 {c.get('title', 'القناة')}", url=c["channel_link"])])
+        for btn in c.get("extra_buttons", []):
+            kb_btns.append([InlineKeyboardButton(btn["text"], url=btn["url"])])
+        if kb_btns:
+            await query.message.reply_text("👁️ معاينة الأزرار:", reply_markup=InlineKeyboardMarkup(kb_btns))
+        else:
+            await query.answer("مفيش أزرار للمعاينة!", show_alert=True)
+        await safe_edit(update.callback_query, f"📢 *إعدادات قناة: {c.get('title', cid)}*",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"channel_{cid}")]]),
+            parse_mode="Markdown")
+
+    elif cb.startswith("cleave_"):
+        cid = cb[7:]
+        c = get_channel(data, cid)
+        title = c.get("title", cid)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ نعم، أخرج", callback_data=f"cconfirm_leave_{cid}")],
+            [InlineKeyboardButton("❌ لا", callback_data=f"channel_{cid}")],
+        ])
+        await safe_edit(update.callback_query,
+            f"⚠️ هل تريد إخراج البوت من قناة *{title}*؟",
+            reply_markup=kb, parse_mode="Markdown")
+
+    elif cb.startswith("cconfirm_leave_"):
+        cid = cb[15:]
+        c = get_channel(data, cid)
+        title = c.get("title", cid)
+        try:
+            await context.bot.leave_chat(int(cid))
+            if cid in data.get("channels", {}):
+                del data["channels"][cid]
+                save(data)
+            await safe_edit(update.callback_query, f"✅ تم الخروج من قناة *{title}*",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_channels")]]),
+                parse_mode="Markdown")
+        except Exception as e:
+            await safe_edit(update.callback_query, f"❌ فشل: {e}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"channel_{cid}")]]),
+                parse_mode="Markdown")
 
     # ===== إدارة المجموعات =====
     elif cb == "admin_groups":
@@ -893,6 +1059,8 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
                 targets += list(data.get("users", {}).keys())
             if target in ["groups", "all"]:
                 targets += list(data.get("groups", {}).keys())
+            if target in ["channels", "all"]:
+                targets += list(data.get("channels", {}).keys())
 
             for chat_id in targets:
                 try:
@@ -927,6 +1095,13 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
                 for gid in data.get("groups", {}):
                     try:
                         await context.bot.send_message(int(gid), text)
+                        sent += 1
+                    except:
+                        failed += 1
+            if target in ["channels", "all"]:
+                for cid in data.get("channels", {}):
+                    try:
+                        await context.bot.send_message(int(cid), text)
                         sent += 1
                     except:
                         failed += 1
@@ -1029,6 +1204,29 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"gs_words_{gid}")]]),
                 parse_mode="Markdown"
             )
+
+        # ===== القنوات =====
+        elif waiting.startswith("channel_link_"):
+            cid = waiting[13:]
+            c = get_channel(data, cid)
+            c["channel_link"] = text.strip()
+            save(data)
+            await update.message.reply_text("✅ تم تحديث رابط القناة!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"channel_{cid}")]]))
+
+        elif waiting.startswith("channel_add_btn_"):
+            cid = waiting[16:]
+            if "|" in text:
+                parts = text.split("|", 1)
+                c = get_channel(data, cid)
+                c.setdefault("extra_buttons", []).append({"text": parts[0].strip(), "url": parts[1].strip()})
+                save(data)
+                await update.message.reply_text(f"✅ تم إضافة الزر: *{parts[0].strip()}*",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"channel_{cid}")]]),
+                    parse_mode="Markdown")
+            else:
+                context.user_data["waiting"] = waiting
+                await update.message.reply_text("⚠️ الشكل غلط! استخدم:\n`اسم الزر | الرابط`", parse_mode="Markdown")
         return
 
     # اقتراح/شكوى
@@ -1259,6 +1457,44 @@ async def handle_member_update(update: Update, context: ContextTypes.DEFAULT_TYP
     save(data)
 
 # ==================== BOT ADDED TO GROUP ====================
+async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """يضيف أزرار تلقائياً على كل رسالة في القناة"""
+    msg = update.channel_post or update.message
+    if not msg:
+        return
+    chat = update.effective_chat
+    if not chat:
+        return
+
+    data = load()
+    cid = str(chat.id)
+    c = get_channel(data, cid)
+
+    # تسجيل القناة
+    if c.get("title") != chat.title:
+        c["title"] = chat.title or cid
+        c["username"] = f"@{chat.username}" if chat.username else ""
+        if not c.get("channel_link") and chat.username:
+            c["channel_link"] = f"https://t.me/{chat.username}"
+        save(data)
+
+    # بناء الأزرار
+    kb_btns = []
+    if c.get("auto_button") and c.get("channel_link"):
+        kb_btns.append([InlineKeyboardButton(f"📢 {c.get('title', 'القناة')}", url=c["channel_link"])])
+    for btn in c.get("extra_buttons", []):
+        if btn.get("url"):
+            kb_btns.append([InlineKeyboardButton(btn["text"], url=btn["url"])])
+
+    if not kb_btns:
+        return
+
+    # تعديل الرسالة وإضافة الأزرار
+    try:
+        await msg.edit_reply_markup(reply_markup=InlineKeyboardMarkup(kb_btns))
+    except Exception as e:
+        logger.warning(f"Could not edit channel post markup: {e}")
+
 async def my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = update.my_chat_member
     if not result:
@@ -1281,13 +1517,24 @@ async def my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if existing_gid != gid and data["groups"][existing_gid].get("title") == title:
                 logger.info(f"Removing duplicate group: {existing_gid} (same title as {gid})")
                 del data["groups"][existing_gid]
-        g = get_group(data, gid)
-        g["title"] = title
+        # قناة أو مجموعة؟
+        if chat.type == "channel":
+            c = get_channel(data, gid)
+            c["title"] = title
+            c["username"] = f"@{chat.username}" if chat.username else ""
+            if not c.get("channel_link") and chat.username:
+                c["channel_link"] = f"https://t.me/{chat.username}"
+        else:
+            g = get_group(data, gid)
+            g["title"] = title
         save(data)
     elif new_status in ["left", "kicked"]:
         gid = str(chat.id)
         if gid in data.get("groups", {}):
             del data["groups"][gid]
+            save(data)
+        if gid in data.get("channels", {}):
+            del data["channels"][gid]
             save(data)
 
 # ==================== WELCOME/LEAVE via Message ====================
@@ -1364,6 +1611,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_private_message))
     app.add_handler(MessageHandler(filters.ChatType.GROUPS & ~filters.StatusUpdate.ALL, handle_group_message))
+    app.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member_message))
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, handle_left_member_message))
     app.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CHAT_MEMBER))
