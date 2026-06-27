@@ -223,7 +223,7 @@ async def show_group_settings(update, context, gid, data):
         [InlineKeyboardButton("↩️ حظر الفورورد", callback_data=f"gs_forward_{gid}")],
         [InlineKeyboardButton("🤬 حظر الكلمات", callback_data=f"gs_words_{gid}")],
         [InlineKeyboardButton("👥 الاستثناءات", callback_data=f"gs_exceptions_{gid}")],
-        [InlineKeyboardButton("🚪 إخراج البوت من المجموعة", callback_data=f"gs_leave_group_{gid}")],
+        [InlineKeyboardButton("🚪 إخراج البوت من المجموعة", callback_data=f"gleave_group_{gid}")],
         [InlineKeyboardButton("🔙 رجوع للمجموعات", callback_data="admin_groups")],
     ])
     try:
@@ -485,20 +485,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         gid = cb[9:]
         await show_words_settings(update, context, gid, data)
 
-    elif cb.startswith("gs_leave_group_"):
-        gid = cb[15:]
+    elif cb.startswith("gleave_group_"):
+        gid = cb[13:]
         g = get_group(data, gid)
         title = g.get("title", gid)
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ نعم، أخرج البوت", callback_data=f"confirm_leave_{gid}")],
+            [InlineKeyboardButton("✅ نعم، أخرج البوت", callback_data=f"gconfirm_leave_{gid}")],
             [InlineKeyboardButton("❌ لا، ارجع", callback_data=f"group_{gid}")],
         ])
         await safe_edit(update.callback_query,
             f"⚠️ *تأكيد الخروج*\n\nهل تريد إخراج البوت من مجموعة *{title}*؟",
             reply_markup=kb, parse_mode="Markdown")
 
-    elif cb.startswith("confirm_leave_"):
-        gid = cb[14:]
+    elif cb.startswith("gconfirm_leave_"):
+        gid = cb[15:]
         g = get_group(data, gid)
         title = g.get("title", gid)
         try:
