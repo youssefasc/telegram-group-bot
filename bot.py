@@ -48,6 +48,7 @@ def default_channel_settings():
         "auto_button": True,          # زرار رابط القناة تلقائي
         "channel_link": "",           # رابط القناة
         "extra_buttons": [],          # أزرار إضافية [{text, url}]
+        "repost_forwards": False,     # حذف الـ forwards وإعادة نشرها بأزرار القناة
     }
 
 def default_group_settings():
@@ -250,6 +251,7 @@ async def show_channel_settings(update, context, cid, data):
     btns_text = "\n".join([f"• {b['text']} → {b.get('url','')}" for b in c.get("extra_buttons", [])]) or "لا يوجد"
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton(f"🔗 زرار القناة التلقائي: {auto}", callback_data=f"ctoggle_auto_{cid}")],
+        [InlineKeyboardButton(f"♻️ إعادة نشر الـ Forwards: {'✅' if c.get('repost_forwards') else '❌'}", callback_data=f"ctoggle_repost_{cid}")],
         [InlineKeyboardButton("✏️ تعديل رابط القناة", callback_data=f"cedit_link_{cid}")],
         [InlineKeyboardButton("➕ إضافة زر إضافي", callback_data=f"cedit_add_btn_{cid}")],
         [InlineKeyboardButton("🗑️ حذف زر إضافي", callback_data=f"cedit_del_btn_{cid}")],
@@ -560,6 +562,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c["auto_button"] = not c["auto_button"]
         save(data)
         await query.answer(f"✅ الزرار التلقائي: {'مفعّل' if c['auto_button'] else 'معطّل'}", show_alert=True)
+        await show_channel_settings(update, context, cid, data)
+
+    elif cb.startswith("ctoggle_repost_"):
+        cid = cb[15:]
+        c = get_channel(data, cid)
+        c["repost_forwards"] = not c.get("repost_forwards", False)
+        save(data)
+        status = "مفعّل ✅" if c["repost_forwards"] else "معطّل ❌"
+        await query.answer(f"♻️ إعادة نشر الـ Forwards: {status}", show_alert=True)
         await show_channel_settings(update, context, cid, data)
 
     elif cb.startswith("cedit_link_"):
@@ -1528,10 +1539,81 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         if btn.get("url"):
             kb_btns.append([InlineKeyboardButton(btn["text"], url=btn["url"])])
 
+    # هل الرسالة محولة (forward)؟
+    is_forward = getattr(msg, "forward_origin", None) or getattr(msg, "forward_from", None) or getattr(msg, "forward_from_chat", None)
+
+    # لو إعداد إعادة نشر الـ Forwards مفعّل والرسالة محولة
+    if c.get("repost_forwards") and is_forward:
+        try:
+            # احذف الرسالة الـ forwarded
+            await msg.delete()
+        except Exception as e:
+            logger.warning(f"Could not delete forward: {e}")
+            return
+
+        # أعد نشرها كـ copy نظيفة مع الأزرار
+        try:
+            kb = InlineKeyboardMarkup(kb_btns) if kb_btns else None
+            if msg.text:
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text=msg.text,
+                    reply_markup=kb,
+                    entities=msg.entities
+                )
+            elif msg.photo:
+                await context.bot.send_photo(
+                    chat_id=chat.id,
+                    photo=msg.photo[-1].file_id,
+                    caption=msg.caption,
+                    caption_entities=msg.caption_entities,
+                    reply_markup=kb
+                )
+            elif msg.video:
+                await context.bot.send_video(
+                    chat_id=chat.id,
+                    video=msg.video.file_id,
+                    caption=msg.caption,
+                    caption_entities=msg.caption_entities,
+                    reply_markup=kb
+                )
+            elif msg.document:
+                await context.bot.send_document(
+                    chat_id=chat.id,
+                    document=msg.document.file_id,
+                    caption=msg.caption,
+                    caption_entities=msg.caption_entities,
+                    reply_markup=kb
+                )
+            elif msg.audio:
+                await context.bot.send_audio(
+                    chat_id=chat.id,
+                    audio=msg.audio.file_id,
+                    caption=msg.caption,
+                    caption_entities=msg.caption_entities,
+                    reply_markup=kb
+                )
+            elif msg.voice:
+                await context.bot.send_voice(
+                    chat_id=chat.id,
+                    voice=msg.voice.file_id,
+                    caption=msg.caption,
+                    reply_markup=kb
+                )
+            elif msg.sticker:
+                await context.bot.send_sticker(
+                    chat_id=chat.id,
+                    sticker=msg.sticker.file_id,
+                    reply_markup=kb
+                )
+        except Exception as e:
+            logger.error(f"Could not repost channel forward: {e}")
+        return
+
+    # رسالة عادية - أضف الأزرار
     if not kb_btns:
         return
 
-    # تعديل الرسالة وإضافة الأزرار
     try:
         await msg.edit_reply_markup(reply_markup=InlineKeyboardMarkup(kb_btns))
     except Exception as e:
