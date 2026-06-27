@@ -1003,68 +1003,53 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_admin_home(update, context, data)
 
 # ==================== MESSAGES (PRIVATE) ====================
-async def handle_forward_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """برودكاست موجّه - يبعت الرسالة بـ forward_message فتظهر كـ Forwarded from"""
+async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     msg = update.message
     if not msg or not user:
         return
+    text = msg.text or ""
     data = load()
     waiting = context.user_data.get("waiting", "")
 
-    if not is_admin(user.id, data) or not waiting.startswith("broadcast_fwd_"):
+    # ===== برودكاست موجّه (forward) =====
+    if is_admin(user.id, data) and waiting.startswith("broadcast_fwd_"):
+        context.user_data.pop("waiting")
+        target = waiting[len("broadcast_fwd_"):]
+        targets_list = []
+        if target in ["users", "all"]:
+            targets_list += list(data.get("users", {}).keys())
+        if target in ["groups", "all"]:
+            targets_list += list(data.get("groups", {}).keys())
+        if target in ["channels", "all"]:
+            targets_list += list(data.get("channels", {}).keys())
+        if not targets_list:
+            await msg.reply_text("⚠️ مفيش جهات للإرسال!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]]))
+            return
+        await msg.reply_text(f"⏳ جاري الإرسال لـ {len(targets_list)} جهة...")
+        sent = failed = 0
+        for chat_id in targets_list:
+            try:
+                await context.bot.forward_message(
+                    chat_id=int(chat_id),
+                    from_chat_id=msg.chat_id,
+                    message_id=msg.message_id
+                )
+                sent += 1
+            except Exception as e:
+                logger.warning(f"Fwd broadcast failed to {chat_id}: {e}")
+                failed += 1
+        data["stats"]["broadcasts"] = data["stats"].get("broadcasts", 0) + 1
+        save(data)
+        await msg.reply_text(
+            f"↩️ *تم البرودكاست الموجّه!*\n\n✅ أُرسل: `{sent}`\n❌ فشل: `{failed}`",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]]),
+            parse_mode="Markdown"
+        )
         return
-
-    context.user_data.pop("waiting")
-    target = waiting[len("broadcast_fwd_"):]  # users / groups / channels / all
-
-    sent = failed = 0
-    targets_list = []
-    if target in ["users", "all"]:
-        targets_list += list(data.get("users", {}).keys())
-    if target in ["groups", "all"]:
-        targets_list += list(data.get("groups", {}).keys())
-    if target in ["channels", "all"]:
-        targets_list += list(data.get("channels", {}).keys())
-
-    if not targets_list:
-        await msg.reply_text("⚠️ مفيش جهات للإرسال!",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]]))
-        return
-
-    await msg.reply_text(f"⏳ جاري الإرسال لـ {len(targets_list)} جهة...")
-
-    for chat_id in targets_list:
-        try:
-            # forward_message بيحتفظ بـ "Forwarded from"
-            await context.bot.forward_message(
-                chat_id=int(chat_id),
-                from_chat_id=msg.chat_id,
-                message_id=msg.message_id
-            )
-            sent += 1
-        except Exception as e:
-            logger.warning(f"Fwd broadcast failed to {chat_id}: {e}")
-            failed += 1
-
-    data["stats"]["broadcasts"] = data["stats"].get("broadcasts", 0) + 1
-    save(data)
-    await msg.reply_text(
-        f"↩️ *تم البرودكاست الموجّه!*\n\n✅ أُرسل: `{sent}`\n❌ فشل: `{failed}`",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]]),
-        parse_mode="Markdown"
-    )
-
-async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    text = update.message.text or ""
-    data = load()
-    waiting = context.user_data.get("waiting")
 
     if is_admin(user.id, data) and waiting:
-        # للبرودكاست الموجّه بيتعالج في handle_forward_broadcast
-        if waiting.startswith("broadcast_fwd_"):
-            return  # مش هنعالجه هنا
         context.user_data.pop("waiting")
 
         if waiting == "welcome_text":
@@ -1628,8 +1613,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start, filters=filters.ChatType.PRIVATE))
     app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, handle_forward_broadcast))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_private_message))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, handle_private_message))
     app.add_handler(MessageHandler(filters.ChatType.GROUPS & ~filters.StatusUpdate.ALL, handle_group_message))
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member_message))
