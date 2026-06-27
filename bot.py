@@ -102,6 +102,12 @@ def get_group(data, chat_id):
     gid = str(chat_id)
     if gid not in data.get("groups", {}):
         data["groups"][gid] = default_group_settings()
+    else:
+        # نضيف الإعدادات الجديدة للمجموعات القديمة اللي مالهاش
+        defaults = default_group_settings()
+        for key, val in defaults.items():
+            if key not in data["groups"][gid]:
+                data["groups"][gid][key] = val
     return data["groups"][gid]
 
 def register_user(user, data):
