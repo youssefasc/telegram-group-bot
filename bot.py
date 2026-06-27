@@ -457,13 +457,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif cb == "admin_stats":
         users = len(data.get("users", {}))
         groups = len(data.get("groups", {}))
+        channels = len(data.get("channels", {}))
         banned = len(data.get("banned_users", []))
         sub_admins = len(data.get("sub_admins", []))
         msgs = data["stats"].get("messages", 0)
         bcast = data["stats"].get("broadcasts", 0)
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]])
-        await query.edit_message_text(
-            f"📊 *الإحصائيات*\n\n👤 المستخدمون: `{users}`\n👥 المجموعات: `{groups}`\n🚫 المحظورون: `{banned}`\n👮 الأدمنز: `{sub_admins}`\n💬 الرسائل: `{msgs}`\n📢 البرودكاستات: `{bcast}`",
+        await safe_edit(update.callback_query,
+            f"📊 *الإحصائيات*\n\n👤 المستخدمون: `{users}`\n👥 المجموعات: `{groups}`\n📢 القنوات: `{channels}`\n🚫 المحظورون: `{banned}`\n👮 الأدمنز: `{sub_admins}`\n💬 الرسائل: `{msgs}`\n📣 البرودكاستات: `{bcast}`",
             reply_markup=kb, parse_mode="Markdown"
         )
 
