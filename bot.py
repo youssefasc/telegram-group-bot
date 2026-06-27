@@ -27,6 +27,7 @@ def load():
         },
         "auto_replies": {},
         "banned_users": [],
+        "sub_admins": [],
         "users": {},
         "groups": {},
         "allow_groups": True,
@@ -37,7 +38,15 @@ def save(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-def is_admin(user_id):
+def is_admin(user_id, data=None):
+    if user_id == ADMIN_ID:
+        return True
+    if data:
+        return str(user_id) in data.get("sub_admins", [])
+    d = load()
+    return str(user_id) in d.get("sub_admins", [])
+
+def is_owner(user_id):
     return user_id == ADMIN_ID
 
 def is_banned(user_id, data):
@@ -80,6 +89,7 @@ def admin_home_kb(data):
         [InlineKeyboardButton("🤖 الردود التلقائية", callback_data="admin_replies")],
         [InlineKeyboardButton("📢 برودكاست", callback_data="admin_broadcast_menu")],
         [InlineKeyboardButton("🚫 المحظورون", callback_data="admin_banned")],
+        [InlineKeyboardButton("👮 الأدمنز", callback_data="admin_admins")],
         [InlineKeyboardButton(f"🔓 انضمام للمجموعات: {allow}", callback_data="admin_toggle_groups")],
     ])
 
@@ -98,7 +108,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     data = load()
 
-    if is_admin(user.id):
+    if is_admin(user.id, data):
         await show_admin_home(update, context, data)
         return
 
@@ -121,7 +131,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cb = query.data
     user_id = query.from_user.id
 
-    if not is_admin(user_id):
+    if not is_admin(user_id, data):
         return
 
     data = load()
@@ -135,6 +145,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users = len(data.get("users", {}))
         groups = len(data.get("groups", {}))
         banned = len(data.get("banned_users", []))
+        sub_admins = len(data.get("sub_admins", []))
         msgs = data["stats"].get("messages", 0)
         bcast = data["stats"].get("broadcasts", 0)
         text = (
@@ -142,6 +153,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👤 المستخدمون: `{users}`\n"
             f"👥 المجموعات: `{groups}`\n"
             f"🚫 المحظورون: `{banned}`\n"
+            f"👮 الأدمنز: `{sub_admins}`\n"
             f"💬 الرسائل المستقبلة: `{msgs}`\n"
             f"📢 البرودكاستات: `{bcast}`"
         )
@@ -257,6 +269,60 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📢 *برودكاست لـ {target}*\n\nابعت الرسالة اللي عايز ترسلها:",
             reply_markup=kb, parse_mode="Markdown"
         )
+
+    # ===== الأدمنز =====
+    elif cb == "admin_admins":
+        # فقط الأدمن الرئيسي يقدر يدير الأدمنز
+        if not is_owner(user_id):
+            await query.answer("❌ هذه الخاصية للأدمن الرئيسي فقط!", show_alert=True)
+            return
+        sub_admins = data.get("sub_admins", [])
+        text = "👮 *إدارة الأدمنز*\n\n"
+        if sub_admins:
+            text += "\n".join([f"• `{uid}`" for uid in sub_admins])
+        else:
+            text += "لا يوجد أدمنز مضافين"
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ إضافة أدمن", callback_data="add_admin")],
+            [InlineKeyboardButton("🗑️ حذف أدمن", callback_data="del_admin")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")],
+        ])
+        await query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+
+    elif cb == "add_admin":
+        if not is_owner(user_id):
+            await query.answer("❌ هذه الخاصية للأدمن الرئيسي فقط!", show_alert=True)
+            return
+        context.user_data["waiting"] = "add_admin"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="admin_admins")]])
+        await query.edit_message_text(
+            "➕ *إضافة أدمن جديد*\n\nابعت الـ ID بتاع الشخص:\n\n"
+            "💡 يقدر يعرف ID بتاعه من @userinfobot",
+            reply_markup=kb, parse_mode="Markdown"
+        )
+
+    elif cb == "del_admin":
+        if not is_owner(user_id):
+            await query.answer("❌ هذه الخاصية للأدمن الرئيسي فقط!", show_alert=True)
+            return
+        sub_admins = data.get("sub_admins", [])
+        if not sub_admins:
+            await query.answer("مفيش أدمنز!", show_alert=True)
+            return
+        rows = [[InlineKeyboardButton(f"🗑️ {uid}", callback_data=f"deladmin_{uid}")] for uid in sub_admins]
+        rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="admin_admins")])
+        await query.edit_message_text("🗑️ اختار الأدمن اللي عايز تحذفه:", reply_markup=InlineKeyboardMarkup(rows))
+
+    elif cb.startswith("deladmin_"):
+        if not is_owner(user_id):
+            await query.answer("❌ هذه الخاصية للأدمن الرئيسي فقط!", show_alert=True)
+            return
+        uid = cb[9:]
+        if uid in data["sub_admins"]:
+            data["sub_admins"].remove(uid)
+            save(data)
+            await query.answer(f"✅ تم حذف الأدمن: {uid}", show_alert=True)
+        await show_admin_home(update, context, data)
 
     # ===== المحظورون =====
     elif cb == "admin_banned":
