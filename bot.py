@@ -70,6 +70,12 @@ def default_group_settings():
         "exceptions_links": [],  # روابط مسموحة
         # تتبع المخالفات
         "violations": {},  # {user_id: {links: 0, username: 0, forward: 0}}
+        # حظر الكلمات
+        "anti_words": False,
+        "anti_words_list": [],
+        "anti_words_action": "delete",
+        "anti_words_threshold": 1,
+        "anti_words_mute_duration": 60,
         # تتبع الأعضاء (للترحيب مرة واحدة)
         "seen_members": [],
         "left_members": [],
@@ -194,7 +200,8 @@ async def show_group_settings(update, context, gid, data):
         f"👋 مغادرة: {s(g['leave_enabled'])} ({once(g['leave_once'])})\n\n"
         f"🔗 حظر روابط: {s(g['anti_links'])} | عقوبة: {action_label(g['anti_links_action'])} | حد: {g['anti_links_threshold']}\n"
         f"👤 حظر يوزر: {s(g['anti_username'])} | عقوبة: {action_label(g['anti_username_action'])} | حد: {g['anti_username_threshold']}\n"
-        f"↩️ حظر فورورد: {s(g['anti_forward'])} | عقوبة: {action_label(g['anti_forward_action'])} | حد: {g['anti_forward_threshold']}\n\n"
+        f"↩️ حظر فورورد: {s(g['anti_forward'])} | عقوبة: {action_label(g['anti_forward_action'])} | حد: {g['anti_forward_threshold']}\n"
+        f"🤬 حظر كلمات: {s(g['anti_words'])} | عقوبة: {action_label(g['anti_words_action'])} | حد: {g['anti_words_threshold']} | {len(g['anti_words_list'])} كلمة\n\n"
         f"👥 استثناءات: {len(g['exceptions_users'])} مستخدم | {len(g['exceptions_links'])} رابط"
     )
     kb = InlineKeyboardMarkup([
@@ -203,6 +210,7 @@ async def show_group_settings(update, context, gid, data):
         [InlineKeyboardButton("🔗 حظر الروابط", callback_data=f"gs_links_{gid}"),
          InlineKeyboardButton("👤 حظر اليوزر", callback_data=f"gs_username_{gid}")],
         [InlineKeyboardButton("↩️ حظر الفورورد", callback_data=f"gs_forward_{gid}")],
+        [InlineKeyboardButton("🤬 حظر الكلمات", callback_data=f"gs_words_{gid}")],
         [InlineKeyboardButton("👥 الاستثناءات", callback_data=f"gs_exceptions_{gid}")],
         [InlineKeyboardButton("🔙 رجوع للمجموعات", callback_data="admin_groups")],
     ])
@@ -259,6 +267,25 @@ async def show_protection_settings(update, context, gid, data, ptype):
     ])
     await update.callback_query.edit_message_text(
         f"{emoji} *إعدادات حظر {name}*",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+
+async def show_words_settings(update, context, gid, data):
+    g = get_group(data, gid)
+    s = lambda v: "✅ مفعّل" if v else "❌ معطّل"
+    words = g.get("anti_words_list", [])
+    words_text = "، ".join(words) if words else "لا يوجد كلمات محظورة"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"🤬 حظر الكلمات: {s(g['anti_words'])}", callback_data=f"gtoggle_words_{gid}")],
+        [InlineKeyboardButton(f"⚖️ العقوبة: {action_label(g['anti_words_action'])}", callback_data=f"gaction_words_{gid}")],
+        [InlineKeyboardButton(f"🔢 عدد المخالفات: {g['anti_words_threshold']}", callback_data=f"gthreshold_words_{gid}")],
+        [InlineKeyboardButton(f"⏱️ مدة الكتم: {g.get('anti_words_mute_duration', 60)} دقيقة", callback_data=f"gmute_dur_words_{gid}")],
+        [InlineKeyboardButton("➕ إضافة كلمة", callback_data=f"gwords_add_{gid}"),
+         InlineKeyboardButton("🗑️ حذف كلمة", callback_data=f"gwords_del_{gid}")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data=f"group_{gid}")],
+    ])
+    await update.callback_query.edit_message_text(
+        f"🤬 *حظر الكلمات*\n\nالكلمات المحظورة:\n`{words_text}`",
         reply_markup=kb, parse_mode="Markdown"
     )
 
@@ -433,6 +460,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         gid = cb[11:]
         await show_protection_settings(update, context, gid, data, "forward")
 
+    elif cb.startswith("gs_words_"):
+        gid = cb[9:]
+        await show_words_settings(update, context, gid, data)
+
     elif cb.startswith("gs_exceptions_"):
         gid = cb[14:]
         await show_exceptions(update, context, gid, data)
@@ -468,32 +499,44 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("✅ تم التعديل", show_alert=True)
             await show_leave_settings(update, context, gid, data)
 
+        elif setting == "words":
+            g["anti_words"] = not g["anti_words"]
+            save(data)
+            await query.answer("✅ تم التعديل", show_alert=True)
+            await show_words_settings(update, context, gid, data)
+
     # ===== تعديل العقوبة =====
     elif cb.startswith("gaction_"):
         rest = cb[8:]
         ptype, gid = rest.rsplit("_", 1)
         g = get_group(data, gid)
-        key = {"links": "anti_links", "username": "anti_username", "forward": "anti_forward"}[ptype]
+        key = {"links": "anti_links", "username": "anti_username", "forward": "anti_forward", "words": "anti_words"}[ptype]
         actions = ["delete", "mute", "ban"]
         current = g[f"{key}_action"]
         next_action = actions[(actions.index(current) + 1) % len(actions)]
         g[f"{key}_action"] = next_action
         save(data)
         await query.answer(f"✅ العقوبة: {action_label(next_action)}", show_alert=True)
-        await show_protection_settings(update, context, gid, data, ptype)
+        if ptype == "words":
+            await show_words_settings(update, context, gid, data)
+        else:
+            await show_protection_settings(update, context, gid, data, ptype)
 
     # ===== تعديل عدد المخالفات =====
     elif cb.startswith("gthreshold_"):
         rest = cb[11:]
         ptype, gid = rest.rsplit("_", 1)
         g = get_group(data, gid)
-        key = {"links": "anti_links", "username": "anti_username", "forward": "anti_forward"}[ptype]
+        key = {"links": "anti_links", "username": "anti_username", "forward": "anti_forward", "words": "anti_words"}[ptype]
         current = g[f"{key}_threshold"]
         next_val = (current % 5) + 1
         g[f"{key}_threshold"] = next_val
         save(data)
         await query.answer(f"✅ الحد: {next_val} مخالفة", show_alert=True)
-        await show_protection_settings(update, context, gid, data, ptype)
+        if ptype == "words":
+            await show_words_settings(update, context, gid, data)
+        else:
+            await show_protection_settings(update, context, gid, data, ptype)
 
     # ===== تعديل مدة الكتم =====
     elif cb.startswith("gmute_dur_"):
@@ -507,7 +550,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         g[key] = next_val
         save(data)
         await query.answer(f"✅ مدة الكتم: {next_val} دقيقة", show_alert=True)
-        await show_protection_settings(update, context, gid, data, ptype)
+        if ptype == "words":
+            await show_words_settings(update, context, gid, data)
+        else:
+            await show_protection_settings(update, context, gid, data, ptype)
 
     # ===== تعديل نص الترحيب/المغادرة =====
     elif cb.startswith("gedit_welcome_text_"):
@@ -527,6 +573,37 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["waiting"] = f"group_welcome_btn_{gid}"
         await query.edit_message_text("➕ ابعت:\n`اسم الزر | الرابط`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data=f"gs_welcome_{gid}")]]), parse_mode="Markdown")
+
+    elif cb.startswith("gwords_add_"):
+        gid = cb[11:]
+        context.user_data["waiting"] = f"words_add_{gid}"
+        await query.edit_message_text(
+            "➕ *إضافة كلمة محظورة*\n\nابعت الكلمة أو الكلمات (كل كلمة في سطر):",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data=f"gs_words_{gid}")]]),
+            parse_mode="Markdown"
+        )
+
+    elif cb.startswith("gwords_del_"):
+        gid = cb[11:]
+        g = get_group(data, gid)
+        words = g.get("anti_words_list", [])
+        if not words:
+            await query.answer("مفيش كلمات محظورة!", show_alert=True)
+            return
+        rows = [[InlineKeyboardButton(f"🗑️ {w}", callback_data=f"gwords_delw_{i}_{gid}")] for i, w in enumerate(words)]
+        rows.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"gs_words_{gid}")])
+        await query.edit_message_text("🗑️ اختار الكلمة اللي عايز تحذفها:", reply_markup=InlineKeyboardMarkup(rows))
+
+    elif cb.startswith("gwords_delw_"):
+        rest = cb[12:]
+        idx_str, gid = rest.rsplit("_", 1)
+        idx = int(idx_str)
+        g = get_group(data, gid)
+        if idx < len(g["anti_words_list"]):
+            removed = g["anti_words_list"].pop(idx)
+            save(data)
+            await query.answer(f"✅ تم حذف: {removed}", show_alert=True)
+        await show_words_settings(update, context, gid, data)
 
     elif cb.startswith("gpreview_welcome_"):
         gid = cb[17:]
@@ -813,6 +890,22 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
                 save(data)
             await update.message.reply_text(f"✅ تم إضافة الرابط المسموح!",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"gs_exceptions_{gid}")]]))
+
+        elif waiting.startswith("words_add_"):
+            gid = waiting[10:]
+            g = get_group(data, gid)
+            new_words = [w.strip().lower() for w in text.split("\n") if w.strip()]
+            added = []
+            for w in new_words:
+                if w not in g["anti_words_list"]:
+                    g["anti_words_list"].append(w)
+                    added.append(w)
+            save(data)
+            await update.message.reply_text(
+                f"✅ تم إضافة {len(added)} كلمة محظورة:\n" + "، ".join(added),
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"gs_words_{gid}")]]),
+                parse_mode="Markdown"
+            )
         return
 
     # اقتراح/شكوى
@@ -916,6 +1009,23 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
             if g["violations"][uid]["username"] >= g["anti_username_threshold"]:
                 g["violations"][uid]["username"] = 0
                 await apply_action(context, chat, user, msg, g["anti_username_action"], g.get("anti_username_mute_duration", 60))
+            else:
+                try:
+                    await msg.delete()
+                except:
+                    pass
+            deleted = True
+
+    # فحص الكلمات المحظورة
+    if not deleted and g.get("anti_words") and msg.text:
+        words_list = g.get("anti_words_list", [])
+        msg_lower = msg.text.lower()
+        found_word = any(word in msg_lower for word in words_list)
+        if found_word:
+            g["violations"][uid]["words"] = g["violations"][uid].get("words", 0) + 1
+            if g["violations"][uid]["words"] >= g.get("anti_words_threshold", 1):
+                g["violations"][uid]["words"] = 0
+                await apply_action(context, chat, user, msg, g.get("anti_words_action", "delete"), g.get("anti_words_mute_duration", 60))
             else:
                 try:
                     await msg.delete()
