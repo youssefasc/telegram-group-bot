@@ -1029,17 +1029,40 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
             return
         await msg.reply_text(f"⏳ جاري الإرسال لـ {len(targets_list)} جهة...")
         sent = failed = 0
+
+        # نحدد المصدر الأصلي للرسالة
+        origin = getattr(msg, "forward_origin", None)
+        orig_chat_id = None
+        orig_msg_id = None
+
+        if origin:
+            # رسالة محولة من قناة
+            orig_channel = getattr(origin, "chat", None)
+            if orig_channel:
+                orig_chat_id = orig_channel.id
+                orig_msg_id = getattr(origin, "message_id", None)
+
         for chat_id in targets_list:
             try:
-                await context.bot.forward_message(
-                    chat_id=int(chat_id),
-                    from_chat_id=msg.chat_id,
-                    message_id=msg.message_id
-                )
+                if orig_chat_id and orig_msg_id:
+                    # forward من المصدر الأصلي - يظهر "Forwarded from iPhoneMasr"
+                    await context.bot.forward_message(
+                        chat_id=int(chat_id),
+                        from_chat_id=orig_chat_id,
+                        message_id=orig_msg_id
+                    )
+                else:
+                    # مفيش مصدر أصلي - forward من شات الأدمن
+                    await context.bot.forward_message(
+                        chat_id=int(chat_id),
+                        from_chat_id=msg.chat_id,
+                        message_id=msg.message_id
+                    )
                 sent += 1
             except Exception as e:
                 logger.warning(f"Fwd broadcast failed to {chat_id}: {e}")
                 failed += 1
+
         data["stats"]["broadcasts"] = data["stats"].get("broadcasts", 0) + 1
         save(data)
         await msg.reply_text(
