@@ -120,6 +120,17 @@ def build_kb(buttons):
             keyboard.append([InlineKeyboardButton(btn["text"], url=btn["url"])])
     return InlineKeyboardMarkup(keyboard) if keyboard else None
 
+async def safe_edit(query, text, reply_markup=None, parse_mode="Markdown"):
+    """محاولة تعديل الرسالة، ولو فشل يبعت رسالة جديدة"""
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception as e:
+        logger.warning(f"edit failed: {e}, sending new message")
+        try:
+            await query.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception as e2:
+            logger.error(f"reply also failed: {e2}")
+
 def action_label(action):
     return {"delete": "🗑️ حذف", "mute": "🔇 كتم", "ban": "🚫 حظر"}.get(action, action)
 
@@ -143,7 +154,7 @@ async def show_admin_home(update, context, data=None):
     text = "🎛️ *لوحة التحكم الرئيسية*"
     kb = admin_home_kb(data)
     if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+        await safe_edit(update.callback_query, text, reply_markup=kb, parse_mode="Markdown")
     else:
         await update.message.reply_text(text, reply_markup=kb, parse_mode="Markdown")
 
@@ -174,14 +185,14 @@ async def show_groups_list(update, context, data):
     groups = data.get("groups", {})
     if not groups:
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]])
-        await update.callback_query.edit_message_text("👥 *إدارة المجموعات*\n\nمفيش مجموعات حالياً.", reply_markup=kb, parse_mode="Markdown")
+        await safe_edit(update.callback_query, "👥 *إدارة المجموعات*\n\nمفيش مجموعات حالياً.", reply_markup=kb, parse_mode="Markdown")
         return
     rows = []
     for gid, g in groups.items():
         title = g.get("title", gid)
         rows.append([InlineKeyboardButton(f"👥 {title}", callback_data=f"group_{gid}")])
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")])
-    await update.callback_query.edit_message_text(
+    await safe_edit(update.callback_query, 
         "👥 *إدارة المجموعات*\n\nاختار مجموعة:",
         reply_markup=InlineKeyboardMarkup(rows),
         parse_mode="Markdown"
@@ -212,10 +223,11 @@ async def show_group_settings(update, context, gid, data):
         [InlineKeyboardButton("↩️ حظر الفورورد", callback_data=f"gs_forward_{gid}")],
         [InlineKeyboardButton("🤬 حظر الكلمات", callback_data=f"gs_words_{gid}")],
         [InlineKeyboardButton("👥 الاستثناءات", callback_data=f"gs_exceptions_{gid}")],
+        [InlineKeyboardButton("🚪 إخراج البوت من المجموعة", callback_data=f"gs_leave_group_{gid}")],
         [InlineKeyboardButton("🔙 رجوع للمجموعات", callback_data="admin_groups")],
     ])
     try:
-        await update.callback_query.edit_message_text(text, reply_markup=kb, parse_mode="Markdown")
+        await safe_edit(update.callback_query, text, reply_markup=kb, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"edit_message_text failed: {e}")
         try:
@@ -235,7 +247,7 @@ async def show_welcome_settings(update, context, gid, data):
         [InlineKeyboardButton("👁️ معاينة", callback_data=f"gpreview_welcome_{gid}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data=f"group_{gid}")],
     ])
-    await update.callback_query.edit_message_text(
+    await safe_edit(update.callback_query, 
         f"👋 *إعدادات الترحيب*\n\nالنص الحالي:\n`{g['welcome_text']}`\n\n"
         f"المتغيرات: {{name}} = اسم العضو، {{group}} = اسم المجموعة",
         reply_markup=kb, parse_mode="Markdown"
@@ -251,7 +263,7 @@ async def show_leave_settings(update, context, gid, data):
         [InlineKeyboardButton("✏️ تعديل النص", callback_data=f"gedit_leave_text_{gid}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data=f"group_{gid}")],
     ])
-    await update.callback_query.edit_message_text(
+    await safe_edit(update.callback_query, 
         f"🚪 *إعدادات المغادرة*\n\nالنص الحالي:\n`{g['leave_text']}`",
         reply_markup=kb, parse_mode="Markdown"
     )
@@ -272,7 +284,7 @@ async def show_protection_settings(update, context, gid, data, ptype):
         [InlineKeyboardButton(f"⏱️ مدة الكتم: {mute_dur} دقيقة", callback_data=f"gmute_dur_{ptype}_{gid}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data=f"group_{gid}")],
     ])
-    await update.callback_query.edit_message_text(
+    await safe_edit(update.callback_query, 
         f"{emoji} *إعدادات حظر {name}*",
         reply_markup=kb, parse_mode="Markdown"
     )
@@ -291,7 +303,7 @@ async def show_words_settings(update, context, gid, data):
          InlineKeyboardButton("🗑️ حذف كلمة", callback_data=f"gwords_del_{gid}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data=f"group_{gid}")],
     ])
-    await update.callback_query.edit_message_text(
+    await safe_edit(update.callback_query, 
         f"🤬 *حظر الكلمات*\n\nالكلمات المحظورة:\n`{words_text}`",
         reply_markup=kb, parse_mode="Markdown"
     )
@@ -307,7 +319,7 @@ async def show_exceptions(update, context, gid, data):
          InlineKeyboardButton("🗑️ حذف رابط", callback_data=f"gexc_del_link_{gid}")],
         [InlineKeyboardButton("🔙 رجوع", callback_data=f"group_{gid}")],
     ])
-    await update.callback_query.edit_message_text(
+    await safe_edit(update.callback_query, 
         f"👥 *الاستثناءات*\n\n👤 المستخدمون المستثنون:\n{users_text}\n\n🔗 الروابط المسموحة:\n{links_text}",
         reply_markup=kb, parse_mode="Markdown"
     )
@@ -472,6 +484,38 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif cb.startswith("gs_words_"):
         gid = cb[9:]
         await show_words_settings(update, context, gid, data)
+
+    elif cb.startswith("gs_leave_group_"):
+        gid = cb[15:]
+        g = get_group(data, gid)
+        title = g.get("title", gid)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ نعم، أخرج البوت", callback_data=f"confirm_leave_{gid}")],
+            [InlineKeyboardButton("❌ لا، ارجع", callback_data=f"group_{gid}")],
+        ])
+        await safe_edit(update.callback_query,
+            f"⚠️ *تأكيد الخروج*\n\nهل تريد إخراج البوت من مجموعة *{title}*؟",
+            reply_markup=kb, parse_mode="Markdown")
+
+    elif cb.startswith("confirm_leave_"):
+        gid = cb[14:]
+        g = get_group(data, gid)
+        title = g.get("title", gid)
+        try:
+            await context.bot.leave_chat(int(gid))
+            # حذف المجموعة من الداتا
+            if gid in data.get("groups", {}):
+                del data["groups"][gid]
+                save(data)
+            await safe_edit(update.callback_query,
+                f"✅ تم إخراج البوت من مجموعة *{title}*",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_groups")]]),
+                parse_mode="Markdown")
+        except Exception as e:
+            await safe_edit(update.callback_query,
+                f"❌ فشل الخروج: {str(e)}",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data=f"group_{gid}")]]),
+                parse_mode="Markdown")
 
     elif cb.startswith("gs_exceptions_"):
         gid = cb[14:]
@@ -772,7 +816,11 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
     waiting = context.user_data.get("waiting")
 
     if is_admin(user.id, data) and waiting:
-        context.user_data.pop("waiting")
+        # للبرودكاست الموجّه نحتاج ندور على forward قبل ما نمسح waiting
+        if not waiting.startswith("broadcast_fwd_"):
+            context.user_data.pop("waiting")
+        else:
+            context.user_data.pop("waiting")
 
         if waiting == "welcome_text":
             data["welcome"]["text"] = text
@@ -798,6 +846,45 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
             else:
                 context.user_data["waiting"] = waiting
                 await update.message.reply_text("⚠️ الشكل غلط! `الكلمة | الرد`", parse_mode="Markdown")
+
+        elif waiting.startswith("broadcast_fwd_"):
+            # برودكاست موجّه - يحتاج الرسالة تكون forward
+            target = waiting.split("_")[2]
+            msg = update.message
+            # التحقق إن الرسالة موجهة
+            if not msg.forward_origin and not msg.forward_from and not msg.forward_from_chat:
+                context.user_data["waiting"] = waiting  # ارجع للانتظار
+                await update.message.reply_text(
+                    "⚠️ الرسالة دي مش موجهة! ابعت رسالة موجّهة (forward) من قناة أو شخص.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="admin_broadcast_menu")]])
+                )
+                return
+
+            sent = failed = 0
+            targets = []
+            if target in ["users", "all"]:
+                targets += list(data.get("users", {}).keys())
+            if target in ["groups", "all"]:
+                targets += list(data.get("groups", {}).keys())
+
+            for chat_id in targets:
+                try:
+                    await context.bot.forward_message(
+                        chat_id=int(chat_id),
+                        from_chat_id=msg.chat_id,
+                        message_id=msg.message_id
+                    )
+                    sent += 1
+                except:
+                    failed += 1
+
+            data["stats"]["broadcasts"] = data["stats"].get("broadcasts", 0) + 1
+            save(data)
+            await update.message.reply_text(
+                f"↩️ *تم البرودكاست الموجّه!*\n\n✅ أُرسل: `{sent}`\n❌ فشل: `{failed}`",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]]),
+                parse_mode="Markdown"
+            )
 
         elif waiting.startswith("broadcast_"):
             target = waiting.split("_")[1]
