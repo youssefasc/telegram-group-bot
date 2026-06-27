@@ -1072,6 +1072,8 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     if not user:
         return
 
+    logger.info(f"Group msg from {user.id} in {chat.id}: {msg.text[:30] if msg.text else 'no text'}")
+
     data = load()
     gid = str(chat.id)
     g = get_group(data, gid)
@@ -1342,7 +1344,7 @@ def main():
     app.add_handler(CommandHandler("start", start, filters=filters.ChatType.PRIVATE))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_private_message))
-    app.add_handler(MessageHandler((filters.TEXT | filters.FORWARDED) & filters.ChatType.GROUPS, handle_group_message))
+    app.add_handler(MessageHandler(filters.ChatType.GROUPS & ~filters.StatusUpdate.ALL, handle_group_message))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member_message))
     app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, handle_left_member_message))
     app.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CHAT_MEMBER))
