@@ -1004,34 +1004,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== MESSAGES (PRIVATE) ====================
 async def handle_forward_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler خاص للبرودكاست الموجّه - بيشتغل على أي نوع رسالة"""
+    """Handler للبرودكاست الموجّه - بيشتغل على أي نوع رسالة في الخاص"""
     user = update.effective_user
     msg = update.message
     if not msg or not user:
         return
     data = load()
     waiting = context.user_data.get("waiting", "")
+
+    # بيشتغل بس لو في waiting للبرودكاست الموجّه
     if not is_admin(user.id, data) or not waiting.startswith("broadcast_fwd_"):
         return
 
     context.user_data.pop("waiting")
-    parts = waiting.split("_")
-    target = parts[2]  # users / groups / channels / all
-
-    # التحقق إن الرسالة موجهة
-    is_forwarded = (
-        getattr(msg, "forward_origin", None) or
-        getattr(msg, "forward_from", None) or
-        getattr(msg, "forward_from_chat", None) or
-        getattr(msg, "forward_sender_name", None)
-    )
-    if not is_forwarded:
-        context.user_data["waiting"] = waiting
-        await msg.reply_text(
-            "⚠️ الرسالة دي مش موجهة!\n\nابعتلي رسالة موجّهة (forward) من قناة أو شخص.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="admin_broadcast_menu")]])
-        )
-        return
+    target = waiting[len("broadcast_fwd_"):]  # users / groups / channels / all
 
     sent = failed = 0
     targets_list = []
@@ -1041,6 +1027,11 @@ async def handle_forward_broadcast(update: Update, context: ContextTypes.DEFAULT
         targets_list += list(data.get("groups", {}).keys())
     if target in ["channels", "all"]:
         targets_list += list(data.get("channels", {}).keys())
+
+    if not targets_list:
+        await msg.reply_text("⚠️ مفيش جهات للإرسال!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]]))
+        return
 
     await msg.reply_text(f"⏳ جاري الإرسال لـ {len(targets_list)} جهة...")
 
