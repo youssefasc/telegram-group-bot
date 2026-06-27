@@ -39,15 +39,14 @@ def save(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def is_admin(user_id, data=None):
-    if user_id == ADMIN_ID:
+    if int(user_id) == int(ADMIN_ID):
         return True
-    if data:
-        return str(user_id) in data.get("sub_admins", [])
-    d = load()
-    return str(user_id) in d.get("sub_admins", [])
+    if data is None:
+        data = load()
+    return str(user_id) in data.get("sub_admins", [])
 
 def is_owner(user_id):
-    return user_id == ADMIN_ID
+    return int(user_id) == int(ADMIN_ID)
 
 def is_banned(user_id, data):
     return str(user_id) in data.get("banned_users", [])
