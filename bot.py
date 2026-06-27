@@ -130,10 +130,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cb = query.data
     user_id = query.from_user.id
 
-    if not is_admin(user_id, data):
-        return
-
     data = load()
+
+    if not is_admin(user_id, data):
+        await query.answer("❌ مش مسموح!", show_alert=True)
+        return
 
     # ===== الرئيسية =====
     if cb == "admin_home":
