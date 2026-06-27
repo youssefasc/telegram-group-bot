@@ -1269,6 +1269,73 @@ async def my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del data["groups"][gid]
             save(data)
 
+# ==================== WELCOME/LEAVE via Message ====================
+async def handle_new_member_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """يشتغل على NEW_CHAT_MEMBERS - أكثر موثوقية من ChatMemberHandler"""
+    msg = update.message
+    if not msg or not msg.new_chat_members:
+        return
+    chat = update.effective_chat
+    data = load()
+    gid = str(chat.id)
+    g = get_group(data, gid)
+    g["title"] = chat.title or gid
+
+    for user in msg.new_chat_members:
+        if user.is_bot:
+            continue
+        if not g.get("welcome_enabled"):
+            continue
+        uid = str(user.id)
+        seen = g.setdefault("seen_members", [])
+        if g.get("welcome_once") and uid in seen:
+            continue
+        if uid not in seen:
+            seen.append(uid)
+        welcome_text = g.get("welcome_text", "أهلاً {name}!").replace(
+            "{name}", f"[{user.first_name}](tg://user?id={user.id})"
+        ).replace("{group}", chat.title or "")
+        kb = build_kb(g.get("welcome_buttons", []))
+        try:
+            await context.bot.send_message(chat.id, welcome_text, reply_markup=kb, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Welcome msg failed: {e}")
+
+    save(data)
+
+async def handle_left_member_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """يشتغل على LEFT_CHAT_MEMBER - أكثر موثوقية من ChatMemberHandler"""
+    msg = update.message
+    if not msg or not msg.left_chat_member:
+        return
+    chat = update.effective_chat
+    user = msg.left_chat_member
+    if user.is_bot:
+        return
+    data = load()
+    gid = str(chat.id)
+    g = get_group(data, gid)
+
+    if not g.get("leave_enabled"):
+        return
+
+    uid = str(user.id)
+    left = g.setdefault("left_members", [])
+    if g.get("leave_once") and uid in left:
+        save(data)
+        return
+    if uid not in left:
+        left.append(uid)
+
+    leave_text = g.get("leave_text", "وداعاً {name}!").replace(
+        "{name}", f"[{user.first_name}](tg://user?id={user.id})"
+    ).replace("{group}", chat.title or "")
+    try:
+        await context.bot.send_message(chat.id, leave_text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Leave msg failed: {e}")
+    save(data)
+
 # ==================== MAIN ====================
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -1276,6 +1343,8 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_private_message))
     app.add_handler(MessageHandler((filters.TEXT | filters.FORWARDED) & filters.ChatType.GROUPS, handle_group_message))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member_message))
+    app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, handle_left_member_message))
     app.add_handler(ChatMemberHandler(handle_member_update, ChatMemberHandler.CHAT_MEMBER))
     app.add_handler(ChatMemberHandler(my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     print("🤖 البوت شغال...")
