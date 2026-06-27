@@ -207,12 +207,20 @@ async def show_groups_list(update, context, data):
         await safe_edit(update.callback_query, "👥 *إدارة المجموعات*\n\nمفيش مجموعات حالياً.", reply_markup=kb, parse_mode="Markdown")
         return
     rows = []
+    seen_titles = {}  # لمنع التكرار
     for gid, g in groups.items():
         title = g.get("title", gid)
+        # لو في مجموعتين بنفس العنوان، اجمعهم في واحدة (الأحدث)
+        if title in seen_titles:
+            old_gid = seen_titles[title]
+            # احذف المجموعة القديمة من الـ rows
+            rows = [r for r in rows if r[0].callback_data != f"group_{old_gid}"]
+        seen_titles[title] = gid
         rows.append([InlineKeyboardButton(f"👥 {title}", callback_data=f"group_{gid}")])
     rows.append([InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")])
+    count = len(rows) - 1  # مش حاسب زرار الرجوع
     await safe_edit(update.callback_query, 
-        "👥 *إدارة المجموعات*\n\nاختار مجموعة:",
+        f"👥 *إدارة المجموعات* ({count})",
         reply_markup=InlineKeyboardMarkup(rows),
         parse_mode="Markdown"
     )
@@ -1266,11 +1274,17 @@ async def my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
             return
-        g = get_group(data, str(chat.id))
-        g["title"] = chat.title or str(chat.id)
+        gid = str(chat.id)
+        # تنظيف أي مجموعات تانية بنفس العنوان (duplicates)
+        title = chat.title or gid
+        for existing_gid in list(data.get("groups", {}).keys()):
+            if existing_gid != gid and data["groups"][existing_gid].get("title") == title:
+                logger.info(f"Removing duplicate group: {existing_gid} (same title as {gid})")
+                del data["groups"][existing_gid]
+        g = get_group(data, gid)
+        g["title"] = title
         save(data)
     elif new_status in ["left", "kicked"]:
-        # لو تم حذف البوت احذف المجموعة
         gid = str(chat.id)
         if gid in data.get("groups", {}):
             del data["groups"][gid]
