@@ -120,7 +120,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save(data)
 
     welcome = data["welcome"]
-    kb = build_kb(welcome["buttons"])
+    # بناء الأزرار مع إضافة زر الاقتراح دايماً
+    keyboard = []
+    for btn in welcome["buttons"]:
+        if btn.get("url"):
+            keyboard.append([InlineKeyboardButton(btn["text"], url=btn["url"])])
+        elif btn.get("callback"):
+            keyboard.append([InlineKeyboardButton(btn["text"], callback_data=btn["callback"])])
+    keyboard.append([InlineKeyboardButton("📝 إرسال اقتراح أو شكوى", callback_data="send_suggestion")])
+    kb = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome["text"], reply_markup=kb, parse_mode="Markdown")
 
 # ==================== CALLBACKS ====================
@@ -134,6 +142,34 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not is_admin(user_id, data):
         await query.answer("❌ مش مسموح!", show_alert=True)
+        return
+
+    # ===== اقتراح/شكوى =====
+    if cb == "send_suggestion":
+        context.user_data["waiting"] = "user_suggestion"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="cancel_suggestion")]])
+        await query.edit_message_text(
+            "📝 *إرسال اقتراح أو شكوى*\n\nاكتب رسالتك وسيتم إرسالها للإدارة:",
+            reply_markup=kb,
+            parse_mode="Markdown"
+        )
+        return
+
+    elif cb == "cancel_suggestion":
+        context.user_data.pop("waiting", None)
+        # إعادة رسالة الترحيب
+        welcome = data["welcome"]
+        kb_btns = welcome["buttons"].copy() if welcome["buttons"] else []
+        keyboard = []
+        for btn in kb_btns:
+            if btn.get("url"):
+                keyboard.append([InlineKeyboardButton(btn["text"], url=btn["url"])])
+        keyboard.append([InlineKeyboardButton("📝 إرسال اقتراح أو شكوى", callback_data="send_suggestion")])
+        await query.edit_message_text(
+            welcome["text"],
+            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
+            parse_mode="Markdown"
+        )
         return
 
     # ===== الرئيسية =====
@@ -454,6 +490,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     register_user(user, data)
     data["stats"]["messages"] = data["stats"].get("messages", 0) + 1
 
+    # اقتراح/شكوى
+    if waiting == "user_suggestion":
+        context.user_data.pop("waiting", None)
+        user = update.effective_user
+        name = user.full_name
+        username = f"@{user.username}" if user.username else "بدون يوزر"
+        uid = user.id
+        # إرسال للأدمن
+        admin_msg = (
+            f"📩 *اقتراح/شكوى جديدة*\n\n"
+            f"👤 الاسم: [{name}](tg://user?id={uid})\n"
+            f"🆔 ID: `{uid}`\n"
+            f"📛 يوزر: {username}\n\n"
+            f"💬 *الرسالة:*\n{text}"
+        )
+        try:
+            await context.bot.send_message(ADMIN_ID, admin_msg, parse_mode="Markdown")
+            # إرسال للأدمنز الفرعيين
+            for sub_id in data.get("sub_admins", []):
+                try:
+                    await context.bot.send_message(int(sub_id), admin_msg, parse_mode="Markdown")
+                except:
+                    pass
+        except:
+            pass
+        await update.message.reply_text("✅ تم إرسال رسالتك للإدارة، شكراً لك!")
+        return
+
     # ردود تلقائية
     for keyword, reply in data.get("auto_replies", {}).items():
         if keyword.lower() in text.lower():
@@ -465,7 +529,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # رسالة الترحيب لأي رسالة
     welcome = data["welcome"]
-    kb = build_kb(welcome["buttons"])
+    # بناء الأزرار مع إضافة زر الاقتراح دايماً
+    keyboard = []
+    for btn in welcome["buttons"]:
+        if btn.get("url"):
+            keyboard.append([InlineKeyboardButton(btn["text"], url=btn["url"])])
+        elif btn.get("callback"):
+            keyboard.append([InlineKeyboardButton(btn["text"], callback_data=btn["callback"])])
+    keyboard.append([InlineKeyboardButton("📝 إرسال اقتراح أو شكوى", callback_data="send_suggestion")])
+    kb = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(welcome["text"], reply_markup=kb, parse_mode="Markdown")
 
 # ==================== GROUP EVENTS ====================
