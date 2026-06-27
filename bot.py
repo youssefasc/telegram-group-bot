@@ -1002,6 +1002,67 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_admin_home(update, context, data)
 
 # ==================== MESSAGES (PRIVATE) ====================
+async def handle_forward_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler خاص للبرودكاست الموجّه - بيشتغل على أي نوع رسالة"""
+    user = update.effective_user
+    msg = update.message
+    if not msg or not user:
+        return
+    data = load()
+    waiting = context.user_data.get("waiting", "")
+    if not is_admin(user.id, data) or not waiting.startswith("broadcast_fwd_"):
+        return
+
+    context.user_data.pop("waiting")
+    parts = waiting.split("_")
+    target = parts[2]  # users / groups / channels / all
+
+    # التحقق إن الرسالة موجهة
+    is_forwarded = (
+        getattr(msg, "forward_origin", None) or
+        getattr(msg, "forward_from", None) or
+        getattr(msg, "forward_from_chat", None) or
+        getattr(msg, "forward_sender_name", None)
+    )
+    if not is_forwarded:
+        context.user_data["waiting"] = waiting
+        await msg.reply_text(
+            "⚠️ الرسالة دي مش موجهة!\n\nابعتلي رسالة موجّهة (forward) من قناة أو شخص.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="admin_broadcast_menu")]])
+        )
+        return
+
+    sent = failed = 0
+    targets_list = []
+    if target in ["users", "all"]:
+        targets_list += list(data.get("users", {}).keys())
+    if target in ["groups", "all"]:
+        targets_list += list(data.get("groups", {}).keys())
+    if target in ["channels", "all"]:
+        targets_list += list(data.get("channels", {}).keys())
+
+    await msg.reply_text(f"⏳ جاري الإرسال لـ {len(targets_list)} جهة...")
+
+    for chat_id in targets_list:
+        try:
+            await context.bot.forward_message(
+                chat_id=int(chat_id),
+                from_chat_id=msg.chat_id,
+                message_id=msg.message_id
+            )
+            sent += 1
+        except Exception as e:
+            logger.warning(f"Forward failed to {chat_id}: {e}")
+            failed += 1
+
+    data["stats"]["broadcasts"] = data["stats"].get("broadcasts", 0) + 1
+    save(data)
+    await msg.reply_text(
+        f"↩️ *تم البرودكاست الموجّه!*\n\n✅ أُرسل: `{sent}`\n❌ فشل: `{failed}`",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]]),
+        parse_mode="Markdown"
+    )
+
 async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text or ""
@@ -1009,11 +1070,10 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
     waiting = context.user_data.get("waiting")
 
     if is_admin(user.id, data) and waiting:
-        # للبرودكاست الموجّه نحتاج ندور على forward قبل ما نمسح waiting
-        if not waiting.startswith("broadcast_fwd_"):
-            context.user_data.pop("waiting")
-        else:
-            context.user_data.pop("waiting")
+        # للبرودكاست الموجّه بيتعالج في handle_forward_broadcast
+        if waiting.startswith("broadcast_fwd_"):
+            return  # مش هنعالجه هنا
+        context.user_data.pop("waiting")
 
         if waiting == "welcome_text":
             data["welcome"]["text"] = text
@@ -1039,57 +1099,6 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
             else:
                 context.user_data["waiting"] = waiting
                 await update.message.reply_text("⚠️ الشكل غلط! `الكلمة | الرد`", parse_mode="Markdown")
-
-        elif waiting.startswith("broadcast_fwd_"):
-            # برودكاست موجّه - بيعمل forward للرسالة كما هي
-            parts = waiting.split("_")
-            target = parts[2]  # users / groups / channels / all
-            msg = update.message
-
-            # التحقق إن الرسالة موجهة (forward_origin موجود في v21)
-            is_forwarded = (
-                getattr(msg, "forward_origin", None) or
-                getattr(msg, "forward_from", None) or
-                getattr(msg, "forward_from_chat", None) or
-                getattr(msg, "forward_sender_name", None)
-            )
-
-            if not is_forwarded:
-                context.user_data["waiting"] = waiting
-                await update.message.reply_text(
-                    "⚠️ الرسالة دي مش موجهة!\n\nابعتلي رسالة موجّهة (forward) من قناة أو شخص.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="admin_broadcast_menu")]])
-                )
-                return
-
-            sent = failed = 0
-            targets_list = []
-            if target in ["users", "all"]:
-                targets_list += list(data.get("users", {}).keys())
-            if target in ["groups", "all"]:
-                targets_list += list(data.get("groups", {}).keys())
-            if target in ["channels", "all"]:
-                targets_list += list(data.get("channels", {}).keys())
-
-            for chat_id in targets_list:
-                try:
-                    await context.bot.forward_message(
-                        chat_id=int(chat_id),
-                        from_chat_id=msg.chat_id,
-                        message_id=msg.message_id
-                    )
-                    sent += 1
-                except Exception as e:
-                    logger.warning(f"Forward failed to {chat_id}: {e}")
-                    failed += 1
-
-            data["stats"]["broadcasts"] = data["stats"].get("broadcasts", 0) + 1
-            save(data)
-            await update.message.reply_text(
-                f"↩️ *تم البرودكاست الموجّه!*\n\n✅ أُرسل: `{sent}`\n❌ فشل: `{failed}`",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]]),
-                parse_mode="Markdown"
-            )
 
         elif waiting.startswith("broadcast_"):
             target = waiting.split("_")[1]
@@ -1619,6 +1628,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start, filters=filters.ChatType.PRIVATE))
     app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, handle_forward_broadcast))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_private_message))
     app.add_handler(MessageHandler(filters.ChatType.GROUPS & ~filters.StatusUpdate.ALL, handle_group_message))
     app.add_handler(MessageHandler(filters.ChatType.CHANNEL, handle_channel_post))
