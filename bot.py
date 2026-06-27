@@ -140,11 +140,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = load()
 
-    if not is_admin(user_id, data):
-        await query.answer("❌ مش مسموح!", show_alert=True)
-        return
-
-    # ===== اقتراح/شكوى =====
+    # ===== callbacks عامة للمستخدمين (بدون تحقق أدمن) =====
     if cb == "send_suggestion":
         context.user_data["waiting"] = "user_suggestion"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ إلغاء", callback_data="cancel_suggestion")]])
@@ -157,11 +153,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif cb == "cancel_suggestion":
         context.user_data.pop("waiting", None)
-        # إعادة رسالة الترحيب
         welcome = data["welcome"]
-        kb_btns = welcome["buttons"].copy() if welcome["buttons"] else []
         keyboard = []
-        for btn in kb_btns:
+        for btn in welcome["buttons"]:
             if btn.get("url"):
                 keyboard.append([InlineKeyboardButton(btn["text"], url=btn["url"])])
         keyboard.append([InlineKeyboardButton("📝 إرسال اقتراح أو شكوى", callback_data="send_suggestion")])
@@ -170,6 +164,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
             parse_mode="Markdown"
         )
+        return
+
+    # ===== التحقق من الأدمن للـ callbacks الإدارية =====
+    if not is_admin(user_id, data):
+        await query.answer("❌ مش مسموح!", show_alert=True)
         return
 
     # ===== الرئيسية =====
