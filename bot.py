@@ -1004,7 +1004,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== MESSAGES (PRIVATE) ====================
 async def handle_forward_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler للبرودكاست الموجّه - بيشتغل على أي نوع رسالة في الخاص"""
+    """برودكاست موجّه - يبعت الرسالة بـ forward_message فتظهر كـ Forwarded from"""
     user = update.effective_user
     msg = update.message
     if not msg or not user:
@@ -1012,7 +1012,6 @@ async def handle_forward_broadcast(update: Update, context: ContextTypes.DEFAULT
     data = load()
     waiting = context.user_data.get("waiting", "")
 
-    # بيشتغل بس لو في waiting للبرودكاست الموجّه
     if not is_admin(user.id, data) or not waiting.startswith("broadcast_fwd_"):
         return
 
@@ -1037,6 +1036,7 @@ async def handle_forward_broadcast(update: Update, context: ContextTypes.DEFAULT
 
     for chat_id in targets_list:
         try:
+            # forward_message بيحتفظ بـ "Forwarded from"
             await context.bot.forward_message(
                 chat_id=int(chat_id),
                 from_chat_id=msg.chat_id,
@@ -1044,7 +1044,7 @@ async def handle_forward_broadcast(update: Update, context: ContextTypes.DEFAULT
             )
             sent += 1
         except Exception as e:
-            logger.warning(f"Forward failed to {chat_id}: {e}")
+            logger.warning(f"Fwd broadcast failed to {chat_id}: {e}")
             failed += 1
 
     data["stats"]["broadcasts"] = data["stats"].get("broadcasts", 0) + 1
@@ -1093,29 +1093,37 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
                 await update.message.reply_text("⚠️ الشكل غلط! `الكلمة | الرد`", parse_mode="Markdown")
 
         elif waiting.startswith("broadcast_"):
-            target = waiting.split("_")[1]
+            target = waiting[len("broadcast_"):]  # users/groups/channels/all
+            msg = update.message
             sent = failed = 0
+            targets_list = []
             if target in ["users", "all"]:
-                for uid in data.get("users", {}):
-                    try:
-                        await context.bot.send_message(int(uid), text)
-                        sent += 1
-                    except:
-                        failed += 1
+                targets_list += list(data.get("users", {}).keys())
             if target in ["groups", "all"]:
-                for gid in data.get("groups", {}):
-                    try:
-                        await context.bot.send_message(int(gid), text)
-                        sent += 1
-                    except:
-                        failed += 1
+                targets_list += list(data.get("groups", {}).keys())
             if target in ["channels", "all"]:
-                for cid in data.get("channels", {}):
-                    try:
-                        await context.bot.send_message(int(cid), text)
-                        sent += 1
-                    except:
-                        failed += 1
+                targets_list += list(data.get("channels", {}).keys())
+
+            if not targets_list:
+                await update.message.reply_text("⚠️ مفيش جهات للإرسال!",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="admin_home")]]))
+                return
+
+            await update.message.reply_text(f"⏳ جاري الإرسال لـ {len(targets_list)} جهة...")
+
+            for chat_id in targets_list:
+                try:
+                    # copy_message بيبعت الرسالة كما هي (نص/صورة/فيديو/إلخ) بدون "Forwarded from"
+                    await context.bot.copy_message(
+                        chat_id=int(chat_id),
+                        from_chat_id=msg.chat_id,
+                        message_id=msg.message_id
+                    )
+                    sent += 1
+                except Exception as e:
+                    logger.warning(f"Broadcast failed to {chat_id}: {e}")
+                    failed += 1
+
             data["stats"]["broadcasts"] = data["stats"].get("broadcasts", 0) + 1
             save(data)
             await update.message.reply_text(f"📢 تم!\n✅ أُرسل: `{sent}`\n❌ فشل: `{failed}`",
