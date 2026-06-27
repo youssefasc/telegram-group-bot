@@ -1085,10 +1085,12 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     # الأدمنز مستثنون
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
+        logger.info(f"Member status for {user.id}: {member.status}")
         if member.status in ["administrator", "creator"]:
+            logger.info(f"Skipping admin {user.id}")
             return
-    except:
-        pass
+    except Exception as e:
+        logger.error(f"getChatMember error: {e}")
 
     # المستخدمون المستثنون
     if str(user.id) in g.get("exceptions_users", []):
@@ -1101,16 +1103,19 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     deleted = False
 
     # فحص الروابط
+    logger.info(f"anti_links={g['anti_links']}, text={bool(msg.text)}")
     if g["anti_links"] and msg.text:
         exc_links = g.get("exceptions_links", [])
         link_pattern = r'(https?://|t\.me/|www\.)[^\s]+'
         links_found = re.findall(link_pattern, msg.text, re.IGNORECASE)
+        logger.info(f"Links found: {links_found}")
         has_forbidden_link = False
         for lf in re.finditer(link_pattern, msg.text, re.IGNORECASE):
             url = lf.group()
             if not any(exc in url for exc in exc_links):
                 has_forbidden_link = True
                 break
+        logger.info(f"has_forbidden_link={has_forbidden_link}")
         if has_forbidden_link:
             g["violations"][uid]["links"] += 1
             if g["violations"][uid]["links"] >= g["anti_links_threshold"]:
