@@ -960,6 +960,10 @@ async def handle_group_message(update: Update, context: ContextTypes.DEFAULT_TYP
     data = load()
     gid = str(chat.id)
     g = get_group(data, gid)
+    # تسجيل عنوان المجموعة دايماً
+    if g.get("title") != chat.title:
+        g["title"] = chat.title or gid
+        save(data)
 
     # الأدمنز مستثنون
     try:
