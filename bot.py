@@ -1030,29 +1030,44 @@ async def handle_private_message(update: Update, context: ContextTypes.DEFAULT_T
         await msg.reply_text(f"⏳ جاري الإرسال لـ {len(targets_list)} جهة...")
         sent = failed = 0
 
-        # نحدد المصدر الأصلي للرسالة
+        # بناء header للمصدر الأصلي
         origin = getattr(msg, "forward_origin", None)
-        orig_chat_id = None
-        orig_msg_id = None
-
+        fwd_header = ""
         if origin:
-            # رسالة محولة من قناة
             orig_channel = getattr(origin, "chat", None)
+            orig_user = getattr(origin, "sender_user", None)
+            orig_name = getattr(origin, "sender_user_name", None)
             if orig_channel:
-                orig_chat_id = orig_channel.id
-                orig_msg_id = getattr(origin, "message_id", None)
+                ch_title = getattr(orig_channel, "title", "")
+                ch_username = getattr(orig_channel, "username", "")
+                if ch_username:
+                    fwd_header = "📢 Forwarded from [" + ch_title + "](https://t.me/" + ch_username + ")\n\n"
+                else:
+                    fwd_header = "📢 Forwarded from " + ch_title + "\n\n"
+            elif orig_user:
+                name = orig_user.full_name
+                uid = orig_user.id
+                fwd_header = "👤 Forwarded from [" + name + "](tg://user?id=" + str(uid) + ")\n\n"
+            elif orig_name:
+                fwd_header = "👤 Forwarded from " + orig_name + "\n\n"
 
         for chat_id in targets_list:
             try:
-                if orig_chat_id and orig_msg_id:
-                    # forward من المصدر الأصلي - يظهر "Forwarded from iPhoneMasr"
-                    await context.bot.forward_message(
+                if fwd_header and msg.text:
+                    await context.bot.send_message(
                         chat_id=int(chat_id),
-                        from_chat_id=orig_chat_id,
-                        message_id=orig_msg_id
+                        text=fwd_header + msg.text,
+                        parse_mode="Markdown"
+                    )
+                elif fwd_header and (msg.photo or msg.video or msg.document):
+                    await context.bot.copy_message(
+                        chat_id=int(chat_id),
+                        from_chat_id=msg.chat_id,
+                        message_id=msg.message_id,
+                        caption=fwd_header + (msg.caption or ""),
+                        parse_mode="Markdown"
                     )
                 else:
-                    # مفيش مصدر أصلي - forward من شات الأدمن
                     await context.bot.forward_message(
                         chat_id=int(chat_id),
                         from_chat_id=msg.chat_id,
