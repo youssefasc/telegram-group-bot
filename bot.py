@@ -1623,11 +1623,24 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     c = get_channel(data, cid)
 
     # تسجيل القناة
+    changed = False
     if c.get("title") != chat.title:
         c["title"] = chat.title or cid
-        c["username"] = f"@{chat.username}" if chat.username else ""
-        if not c.get("channel_link") and chat.username:
+        changed = True
+    if not c.get("channel_link"):
+        if chat.username:
             c["channel_link"] = f"https://t.me/{chat.username}"
+            changed = True
+        else:
+            # قناة خاصة - نجيب invite link
+            try:
+                invite = await context.bot.export_chat_invite_link(chat.id)
+                c["channel_link"] = invite
+                changed = True
+            except Exception as e:
+                logger.warning(f"Could not get invite link for {cid}: {e}")
+    if changed:
+        c["username"] = f"@{chat.username}" if chat.username else ""
         save(data)
 
     # بناء الأزرار
@@ -1770,8 +1783,14 @@ async def my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c = get_channel(data, gid)
             c["title"] = title
             c["username"] = f"@{chat.username}" if chat.username else ""
-            if not c.get("channel_link") and chat.username:
+            if chat.username:
                 c["channel_link"] = f"https://t.me/{chat.username}"
+            elif not c.get("channel_link"):
+                try:
+                    invite = await context.bot.export_chat_invite_link(chat.id)
+                    c["channel_link"] = invite
+                except:
+                    pass
         else:
             g = get_group(data, gid)
             g["title"] = title
