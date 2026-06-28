@@ -1747,80 +1747,22 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
             logger.error(f"Could not repost channel forward: {e}")
         return
 
-    # رسالة عادية - أضف الأزرار
+    # ===== رسالة عادية =====
+
+    # رسالة عادية - أضف الأزرار عن طريق edit
     if not kb_btns:
         return
 
     kb = InlineKeyboardMarkup(kb_btns)
-
-    # نجرب edit_reply_markup الأول (أسرع وما بيعمل duplicate)
     try:
-        await msg.edit_reply_markup(reply_markup=kb)
-        return
+        await context.bot.edit_message_reply_markup(
+            chat_id=chat.id,
+            message_id=msg.message_id,
+            reply_markup=kb
+        )
+        logger.info(f"✅ Added buttons to channel post {msg.message_id} in {chat.id}")
     except Exception as e:
-        logger.warning(f"edit_reply_markup failed: {e}, trying copy+delete")
-
-    # لو فشل نعمل copy مع الأزرار ونحذف الأصلية
-    try:
-        if msg.text:
-            await context.bot.send_message(
-                chat_id=chat.id, text=msg.text,
-                reply_markup=kb, entities=msg.entities
-            )
-        elif msg.photo:
-            await context.bot.send_photo(
-                chat_id=chat.id, photo=msg.photo[-1].file_id,
-                caption=msg.caption, caption_entities=msg.caption_entities,
-                reply_markup=kb
-            )
-        elif msg.video:
-            await context.bot.send_video(
-                chat_id=chat.id, video=msg.video.file_id,
-                caption=msg.caption, caption_entities=msg.caption_entities,
-                reply_markup=kb
-            )
-        elif msg.document:
-            await context.bot.send_document(
-                chat_id=chat.id, document=msg.document.file_id,
-                caption=msg.caption, caption_entities=msg.caption_entities,
-                reply_markup=kb
-            )
-        elif msg.audio:
-            await context.bot.send_audio(
-                chat_id=chat.id, audio=msg.audio.file_id,
-                caption=msg.caption, caption_entities=msg.caption_entities,
-                reply_markup=kb
-            )
-        elif msg.voice:
-            await context.bot.send_voice(
-                chat_id=chat.id, voice=msg.voice.file_id,
-                caption=msg.caption, reply_markup=kb
-            )
-        elif msg.animation:
-            await context.bot.send_animation(
-                chat_id=chat.id, animation=msg.animation.file_id,
-                caption=msg.caption, caption_entities=msg.caption_entities,
-                reply_markup=kb
-            )
-        elif msg.sticker:
-            await context.bot.send_sticker(
-                chat_id=chat.id, sticker=msg.sticker.file_id,
-                reply_markup=kb
-            )
-        else:
-            await context.bot.copy_message(
-                chat_id=chat.id,
-                from_chat_id=msg.chat_id,
-                message_id=msg.message_id,
-                reply_markup=kb
-            )
-        # حذف الرسالة الأصلية بدون أزرار
-        try:
-            await msg.delete()
-        except:
-            pass
-    except Exception as e2:
-        logger.error(f"Could not add buttons to channel post: {e2}")
+        logger.error(f"❌ edit_message_reply_markup failed in {chat.id}: {e}")
 
 async def my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = update.my_chat_member
