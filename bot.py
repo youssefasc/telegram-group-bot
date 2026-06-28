@@ -1757,15 +1757,27 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     kb = InlineKeyboardMarkup(kb_btns)
-    try:
-        await context.bot.edit_message_reply_markup(
-            chat_id=chat.id,
-            message_id=msg.message_id,
-            reply_markup=kb
-        )
-        logger.info(f"✅ Added buttons to channel post {msg.message_id} in {chat.id}")
-    except Exception as e:
-        logger.error(f"❌ edit_message_reply_markup failed in {chat.id}: {e}")
+    # محاولة إضافة الأزرار مع retry
+    for attempt in range(3):
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=chat.id,
+                message_id=msg.message_id,
+                reply_markup=kb,
+                read_timeout=30,
+                write_timeout=30,
+                connect_timeout=30
+            )
+            logger.info(f"✅ Added buttons to channel post {msg.message_id} in {chat.id}")
+            break
+        except Exception as e:
+            if "Timed out" in str(e) and attempt < 2:
+                logger.warning(f"Timeout attempt {attempt+1}, retrying...")
+                import asyncio
+                await asyncio.sleep(2)
+            else:
+                logger.error(f"❌ edit_message_reply_markup failed in {chat.id}: {e}")
+                break
 
 async def my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = update.my_chat_member
