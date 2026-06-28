@@ -1622,6 +1622,9 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     cid = str(chat.id)
     c = get_channel(data, cid)
 
+    logger.info(f"CHANNEL POST: chat_id={chat.id}, title={chat.title}, username={chat.username}, msg_id={msg.message_id}")
+    logger.info(f"CHANNEL SETTINGS: auto_button={c.get('auto_button')}, channel_link={c.get('channel_link')}, extra_buttons={len(c.get('extra_buttons', []))}")
+
     # تسجيل القناة
     changed = False
     if c.get("title") != chat.title:
